@@ -2,6 +2,8 @@ package sentry
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	coreCtx "github.com/exgamer/gosdk-core/pkg/context"
 	"github.com/exgamer/gosdk-core/pkg/errorreporter"
@@ -35,8 +37,36 @@ func (r *Reporter) Capture(ctx context.Context, err error, opts errorreporter.Op
 
 		scope.SetLevel(mapLevel(opts.Level))
 
-		sentrygo.CaptureException(err)
+		sentrygo.CaptureException(rootCause(err))
 	})
+}
+
+// Flush - реализация errorreporter.Flusher. Синхронно ждёт отправки
+// накопленных в фоновой горутине sentry-go событий - нужно вызывать перед
+// выходом из one-shot процессов (консольные команды), у которых нет
+// штатного graceful shutdown, где Sentry успел бы отправить всё сам.
+func (r *Reporter) Flush(timeout time.Duration) bool {
+	return sentrygo.Flush(timeout)
+}
+
+// rootCause разворачивает цепочку Unwrap() до самой глубокой ошибки.
+// Заголовок issue в Sentry берётся из типа объекта, переданного в
+// CaptureException, - если это транспортный конверт (например
+// *exception.HttpException из http-core, которым оборачивают ошибку
+// только чтобы посчитать HTTP-статус/тело ответа), заголовок получается
+// невнятным ("*exception.HttpException" вместо настоящей причины вроде
+// *pgconn.PgError). Метаданные конверта (код, тип, request_id и т.п.)
+// при этом не теряются - они уже уходят отдельным Extra/Context в
+// CaptureToSentry, здесь только выбор объекта для самого исключения.
+func rootCause(err error) error {
+	for {
+		unwrapped := errors.Unwrap(err)
+		if unwrapped == nil {
+			return err
+		}
+
+		err = unwrapped
+	}
 }
 
 func mapLevel(l errorreporter.Level) sentrygo.Level {

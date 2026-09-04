@@ -3,8 +3,8 @@ module github.com/exgamer/gosdk-sentry-core
 go 1.25.5
 
 require (
-	github.com/exgamer/gosdk-core v1.0.23
-	github.com/getsentry/sentry-go v0.48.0
+	github.com/exgamer/gosdk-core v1.0.25
+	github.com/getsentry/sentry-go v0.49.0
 )
 
 require (
@@ -18,8 +18,8 @@ require (
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 )
 
 // TODO: убрать после публикации новой версии gosdk-core с пакетом errorreporter
