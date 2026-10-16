@@ -3,8 +3,8 @@ module github.com/exgamer/gosdk-sentry-core
 go 1.26.0
 
 require (
-	github.com/exgamer/gosdk-core v1.0.26
-	github.com/getsentry/sentry-go v0.49.0
+	github.com/exgamer/gosdk-core v1.0.27
+	github.com/getsentry/sentry-go v0.50.0
 )
 
 require (
@@ -18,6 +18,6 @@ require (
 	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 )
