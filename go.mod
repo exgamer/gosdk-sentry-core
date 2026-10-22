@@ -1,9 +1,9 @@
 module github.com/exgamer/gosdk-sentry-core
 
-go 1.26.0
+go 1.27.3
 
 require (
-	github.com/exgamer/gosdk-core v1.0.28
+	github.com/exgamer/gosdk-core v1.0.29
 	github.com/getsentry/sentry-go v0.50.0
 )
 
