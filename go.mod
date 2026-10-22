@@ -3,7 +3,7 @@ module github.com/exgamer/gosdk-sentry-core
 go 1.27.3
 
 require (
-	github.com/exgamer/gosdk-core v1.0.29
+	github.com/exgamer/gosdk-core v1.1.0
 	github.com/getsentry/sentry-go v0.50.0
 )
 
