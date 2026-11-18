@@ -40,13 +40,24 @@ SENTRY_DSN=https://xxx@sentry.io/yyy
 
 ## Что делает
 
-- `sentry.Init(...)` с `AttachStacktrace: true`, `TracesSampleRate: 1.0` (как раньше в `HttpKernel`).
+- `sentry.Init(...)` с `AttachStacktrace: true`, `TracesSampleRate: 1.0` (как раньше в `HttpKernel`) и
+  данными приложения из `BaseConfig` gosdk-core: `Environment` — `APP_ENV`, `Release` — `APP_VERSION`,
+  `ServerName` — `CONTAINER_NAME` (пустое значение не задаётся; заданные `SENTRY_ENVIRONMENT` и
+  `SENTRY_RELEASE` — переменные самого sentry-go — остаются в силе).
+- В debug-дампе конфига (`LOG_LEVEL=debug`) DSN заменён на `***`.
 - Регистрирует `errorreporter.Reporter`, который на каждый `Capture`:
+  - берёт копию hub запроса из контекста (`sentry.GetHubFromContext`; данные запроса из его scope
+    сохраняются), без него — копию глобального hub: теги и контексты события не попадают в чужие события
+    при параллельных запросах;
   - ставит теги `environment`/`service` из `AppInfo` в контексте;
+  - ставит тег `correlation_id`, если в контексте есть сквозной id корреляции (`sdkctx.CorrelationID`, gosdk-core;
+    его кладут http-core, rabbit, kafka, console) — по нему событие находится в логах всей цепочки;
   - добавляет теги и контексты из `errorreporter.Options`;
   - маппит `errorreporter.Level` в `sentry.Level`;
-  - зовёт `sentry.CaptureException`.
-- На `Stop` делает `sentry.Flush(2 * time.Second)`, чтобы не терять события при shutdown.
+  - отправляет ошибку целиком — всю цепочку `Unwrap` (и конверт вроде `*exception.HttpException`, и
+    настоящую причину вроде `*pgconn.PgError`), без внешней обёртки-маркера errorreporter.
+- На `Stop` ждёт отправки событий в пределах `ctx` остановки (`sentry.FlushWithContext`); без дедлайна у
+  `ctx` — не дольше 2 с.
 
 ## Важно: breaking change при апгрейде с v1 SDK
 

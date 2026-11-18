@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"os"
 	"time"
 
 	coreApp "github.com/exgamer/gosdk-core/pkg/app"
@@ -15,6 +16,9 @@ import (
 )
 
 const SentryKernelName = "sentry"
+
+// flushTimeout Предел ожидания отправки событий на Stop, если у ctx остановки нет своего дедлайна.
+const flushTimeout = 2 * time.Second
 
 // SentryKernel - единственное место в приложении, которое инициализирует
 // sentry-go и регистрирует его как errorreporter.Reporter. Не зависит от
@@ -40,7 +44,7 @@ func (k *SentryKernel) Init(a *coreApp.App) error {
 	}
 
 	k.Config = cfg
-	logger.Dump(a.GetContext(), cfg)
+	logger.Dump(a.GetContext(), cfg.Masked())
 	di.Register(a.Container, k.Config)
 
 	if cfg.SentryDsn == "" {
@@ -49,11 +53,7 @@ func (k *SentryKernel) Init(a *coreApp.App) error {
 		return nil
 	}
 
-	if err := sentrygo.Init(sentrygo.ClientOptions{
-		AttachStacktrace: true,
-		TracesSampleRate: 1.0,
-		Dsn:              cfg.SentryDsn,
-	}); err != nil {
+	if err := sentrygo.Init(clientOptions(cfg.SentryDsn, a.BaseConfig)); err != nil {
 		return err
 	}
 
@@ -66,8 +66,47 @@ func (k *SentryKernel) Start(a *coreApp.App) error {
 	return nil
 }
 
+// Stop ждёт отправки накопленных событий в пределах ctx остановки; ctx без дедлайна — не дольше flushTimeout.
 func (k *SentryKernel) Stop(ctx context.Context) error {
-	_ = sentrygo.Flush(2 * time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+
+		ctx, cancel = context.WithTimeout(ctx, flushTimeout)
+		defer cancel()
+	}
+
+	_ = sentrygo.FlushWithContext(ctx)
 
 	return nil
+}
+
+// clientOptions Настройки sentry-go: окружение — APP_ENV, релиз — APP_VERSION, имя сервера — CONTAINER_NAME
+// из BaseConfig (пустое значение не задаётся: sentry-go берёт своё значение по умолчанию). Заданные
+// SENTRY_ENVIRONMENT и SENTRY_RELEASE (переменные самого sentry-go) остаются в силе.
+func clientOptions(dsn string, base *baseConfig.BaseConfig) sentrygo.ClientOptions {
+	opts := sentrygo.ClientOptions{
+		AttachStacktrace: true,
+		TracesSampleRate: 1.0,
+		Dsn:              dsn,
+	}
+
+	if base == nil {
+		return opts
+	}
+
+	if os.Getenv("SENTRY_ENVIRONMENT") == "" {
+		opts.Environment = base.AppEnv
+	}
+
+	if os.Getenv("SENTRY_RELEASE") == "" {
+		opts.Release = base.Version
+	}
+
+	opts.ServerName = base.ContainerName
+
+	return opts
 }

@@ -20,11 +20,21 @@ func NewReporter() *Reporter {
 	return &Reporter{}
 }
 
+// Capture отправляет событие через собственную копию hub: hub запроса из ctx (sentrygo.GetHubFromContext,
+// его scope с данными запроса сохраняется), иначе глобальный. Теги и контексты события не попадают в
+// чужие события — параллельные Capture из разных запросов не делят scope. Id корреляции ctx
+// (coreCtx.CorrelationID) — тег correlation_id; явный тег из opts.Tags главнее.
 func (r *Reporter) Capture(ctx context.Context, err error, opts errorreporter.Options) {
-	sentrygo.WithScope(func(scope *sentrygo.Scope) {
+	hub := hubFor(ctx)
+
+	hub.WithScope(func(scope *sentrygo.Scope) {
 		if appInfo := coreCtx.GetAppInfoFromContext(ctx); appInfo != nil {
 			scope.SetTag("environment", appInfo.AppEnv)
 			scope.SetTag("service", appInfo.ServiceName)
+		}
+
+		if id := coreCtx.CorrelationID(ctx); id != "" {
+			scope.SetTag("correlation_id", id)
 		}
 
 		if len(opts.Tags) > 0 {
@@ -37,8 +47,23 @@ func (r *Reporter) Capture(ctx context.Context, err error, opts errorreporter.Op
 
 		scope.SetLevel(mapLevel(opts.Level))
 
-		sentrygo.CaptureException(rootCause(err))
+		hub.CaptureException(withoutReportedMarker(err))
 	})
+}
+
+// hubFor Копия hub из ctx, иначе копия глобального: scope копии — только этого события.
+func hubFor(ctx context.Context) *sentrygo.Hub {
+	var hub *sentrygo.Hub
+
+	if ctx != nil {
+		hub = sentrygo.GetHubFromContext(ctx)
+	}
+
+	if hub == nil {
+		hub = sentrygo.CurrentHub()
+	}
+
+	return hub.Clone()
 }
 
 // Flush - реализация errorreporter.Flusher. Синхронно ждёт отправки
@@ -49,24 +74,21 @@ func (r *Reporter) Flush(timeout time.Duration) bool {
 	return sentrygo.Flush(timeout)
 }
 
-// rootCause разворачивает цепочку Unwrap() до самой глубокой ошибки.
-// Заголовок issue в Sentry берётся из типа объекта, переданного в
-// CaptureException, - если это транспортный конверт (например
-// *exception.HttpException из http-core, которым оборачивают ошибку
-// только чтобы посчитать HTTP-статус/тело ответа), заголовок получается
-// невнятным ("*exception.HttpException" вместо настоящей причины вроде
-// *pgconn.PgError). Метаданные конверта (код, тип, request_id и т.п.)
-// при этом не теряются - они уже уходят отдельным Extra/Context в
-// CaptureToSentry, здесь только выбор объекта для самого исключения.
-func rootCause(err error) error {
-	for {
-		unwrapped := errors.Unwrap(err)
-		if unwrapped == nil {
-			return err
-		}
-
-		err = unwrapped
+// withoutReportedMarker Ошибка целиком, со всей цепочкой Unwrap (sentry-go отправляет цепочку
+// исключений: и транспортный конверт вроде *exception.HttpException, и настоящую причину вроде
+// *pgconn.PgError), без внешней обёртки-маркера errorreporter «уже отправлено» — у неё нет своих
+// данных (сообщение то же, что у обёрнутой ошибки), она приходит при Options.Force.
+func withoutReportedMarker(err error) error {
+	inner := errors.Unwrap(err)
+	if inner == nil || !errorreporter.WasReported(err) || errorreporter.WasReported(inner) {
+		return err
 	}
+
+	if err.Error() != inner.Error() {
+		return err
+	}
+
+	return inner
 }
 
 func mapLevel(l errorreporter.Level) sentrygo.Level {
